@@ -103,7 +103,7 @@ async function appendGithubCsv(token, n) {
   if (!putRes.ok) throw new Error(`GitHub PUT ${putRes.status} ${await putRes.text()}`)
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   cors(res)
   if (req.method === 'OPTIONS') return res.status(204).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' })
