@@ -4,7 +4,7 @@
  */
 const PROXY_URL =
   process.env.SUBMIT_PROXY_URL ||
-  'https://vast-lights-act.loca.lt/api/submit'
+  'http://bore.pub:27928/api/submit'
 const SHEETS_URL = process.env.SHEETS_WEBHOOK_URL || ''
 const REPO = process.env.GITHUB_REPO || 'nitturkaryash/kpcl-nps-feedback'
 const BRANCH = process.env.GITHUB_BRANCH || 'main'
