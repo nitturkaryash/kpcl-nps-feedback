@@ -1,0 +1,29 @@
+---
+description: Match Figma spacing, typography, and layout exactly when adding or adjusting screens
+alwaysApply: true
+---
+
+# Pixel-Perfect Screens
+
+Match spacing, typography, and layout exactly. Whenever you add or adjust a screen, treat the Figma frame as source of truth — not a vibe.
+
+## Must match exactly
+
+- **Spacing**: use Figma values at granular level (`padding` / `gap` / `margin` per node). Do not round, “even out,” or invent extra padding. Prefer `serenitySpacing` when the token matches; otherwise use the Figma number.
+- **Typography**: font family, weight, size, line-height, letter-spacing, and color from the named Figma text style. Use `serenityFontFamilies` and `serenityType` — do not swap Inter for the system font or guess tracking.
+- **Layout**: same flex direction, alignment, wrap, max-width, and radius as the frame. Auto-height panels must not get a hardcoded height that clips text.
+- **Color**: use Figma named styles via `serenityColors` (`text.primary`, `accent.cta`, `success.soft` / `success.base`, `mood.*`, `overlay.scrim`). Do not pick nearby hexes (e.g. Relax is Success Primary `#4C7A5A`, not `#607658`).
+
+## Workflow
+
+1. Read the Figma node (MCP `get_design_context` / screenshot) before coding.
+2. Reuse existing screen shells, nav, sheets, and tokens — do not restyle the bottom menu (see pixel-perfect-menu-section).
+3. After edits, check at phone width: no overflow, no stretched bars, overlays use black 24% (`serenityColors.overlay.scrim`).
+
+```tsx
+// ❌ BAD — guessed padding, clipped panel, off-token color
+<View style={{ height: 96, padding: 16, backgroundColor: '#607658' }} />
+
+// ✅ GOOD — Figma padding, content-sized, named token
+<View style={{ paddingHorizontal: 8, paddingVertical: 12, backgroundColor: serenityColors.mood.relax }} />
+```
