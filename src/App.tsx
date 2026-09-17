@@ -207,6 +207,8 @@ export default function App() {
   const [submissionNote, setSubmissionNote] = useState<string | null>(null)
   const [submittedPayload, setSubmittedPayload] =
     useState<SubmissionPayload | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const currentQuestionnaire = QUESTIONNAIRES[questionnaireType]
   const currentAnswers = binaryAnswers[questionnaireType]
@@ -232,7 +234,7 @@ export default function App() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (!isFormValid || currentNps === null) return
+    if (!isFormValid || currentNps === null || isSubmitting) return
 
     const payload: SubmissionPayload = {
       submittedAt: new Date().toISOString(),
@@ -251,28 +253,43 @@ export default function App() {
       experienceLabel: getExperienceLabel(currentNps),
     }
 
+    setIsSubmitting(true)
+    setSubmitError(null)
     console.log('KPCL feedback submission payload', payload)
 
-    let note = 'Response sent to Google Sheets webhook.'
-    if (!webhookUrl) {
-      downloadSubmission(payload)
-      note = 'Webhook URL is not configured. Downloaded a local JSON copy.'
-    } else {
-      try {
-        await sendSubmissionToWebhook(webhookUrl, payload)
-      } catch (error) {
-        console.error(
-          'Webhook submission failed. Downloading local JSON fallback.',
-          error,
-        )
-        downloadSubmission(payload)
-        note =
-          'Could not reach the webhook. Downloaded a local JSON fallback copy.'
+    try {
+      const response = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.ok === false) {
+        throw new Error(result.error || `Submit failed (${response.status})`)
       }
+      const parts = []
+      if (result.sheets) parts.push('Google Sheet')
+      if (result.github) parts.push('response log')
+      setSubmissionNote(
+        parts.length
+          ? `Saved to ${parts.join(' and ')}.`
+          : 'Response saved.',
+      )
+      setSubmittedPayload(payload)
+    } catch (error) {
+      console.error(error)
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : 'Could not save your feedback. Please try again.',
+      )
+      downloadSubmission(payload)
+      setSubmissionNote(
+        'Could not reach the save API. Downloaded a local JSON fallback copy.',
+      )
+    } finally {
+      setIsSubmitting(false)
     }
-
-    setSubmissionNote(note)
-    setSubmittedPayload(payload)
   }
 
   if (submittedPayload) {
@@ -579,13 +596,14 @@ export default function App() {
             </article>
           </section>
 
-          <button
+          {submitError ? (
+              <p className="mb-3 text-sm text-rose-600">{submitError}</p>
+            ) : null}
+            <button
             type="submit"
-            disabled={!isFormValid}
+            disabled={!isFormValid || isSubmitting}
             className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            Submit feedback
-          </button>
+          >{isSubmitting ? 'Saving…' : 'Submit feedback'}</button>
         </form>
       </section>
     </main>
