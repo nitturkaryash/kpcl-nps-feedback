@@ -1,6 +1,11 @@
 /**
- * POST /api/submit — append KPCL NPS feedback to GitHub CSV (+ optional Sheets webhook).
+ * POST /api/submit
+ * Proxies to the box submit tunnel (GitHub CSV append) and optional Sheets webhook.
  */
+const PROXY_URL =
+  process.env.SUBMIT_PROXY_URL ||
+  'https://vast-lights-act.loca.lt/api/submit'
+const SHEETS_URL = process.env.SHEETS_WEBHOOK_URL || ''
 const REPO = process.env.GITHUB_REPO || 'nitturkaryash/kpcl-nps-feedback'
 const BRANCH = process.env.GITHUB_BRANCH || 'main'
 const CSV_PATH = 'data/responses.csv'
@@ -11,37 +16,31 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
-function csvEscape(value) {
-  const s = value == null ? '' : String(value)
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
-  return s
-}
-
-/** Normalize either App.tsx shape or Apps Script shape */
 function normalize(body) {
   const meta = body.meta || {}
   const answers =
-    body.closedQuestionAnswers ||
-    body.closedQuestions ||
-    body.answers ||
-    []
+    body.closedQuestionAnswers || body.closedQuestions || body.answers || []
   return {
-    submittedAt: body.submittedAt || body.submitted_at || new Date().toISOString(),
+    submittedAt: body.submittedAt || new Date().toISOString(),
     questionnaireType: body.questionnaireType || body.questionnaire_type || '',
     questionnaireTitle: body.questionnaireTitle || body.questionnaire_title || '',
     meta: {
-      customerName: meta.customerName || meta.customer_name || '',
+      customerName: meta.customerName || '',
       phone: meta.phone || '',
-      ticketId: meta.ticketId || meta.ticket_id || '',
+      ticketId: meta.ticketId || '',
       date: meta.date || '',
     },
-    answers,
+    closedQuestionAnswers: answers,
     remarks: body.remarks || '',
     npsScore: body.npsScore ?? body.nps_score ?? null,
     npsBand: body.npsBand || body.nps_band || '',
     experienceLabel: body.experienceLabel || body.experience_label || '',
-    raw: body,
   }
+}
+
+function csvEscape(value) {
+  const s = value == null ? '' : String(value)
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 function rowFromNormalized(n) {
@@ -57,30 +56,36 @@ function rowFromNormalized(n) {
     n.npsBand,
     n.experienceLabel,
     n.remarks,
-    JSON.stringify(n.answers),
-    JSON.stringify(n.raw),
+    JSON.stringify(n.closedQuestionAnswers),
+    JSON.stringify(n),
   ]
     .map(csvEscape)
     .join(',')
 }
 
-async function githubGetFile(token, path) {
-  const url = `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`
-  const res = await fetch(url, {
+async function appendGithubCsv(token, n) {
+  const url = `https://api.github.com/repos/${REPO}/contents/${CSV_PATH}?ref=${BRANCH}`
+  const getRes = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
       'User-Agent': 'kpcl-nps-feedback',
     },
   })
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status} ${await res.text()}`)
-  return res.json()
-}
-
-async function githubPutFile(token, path, content, sha, message) {
-  const url = `https://api.github.com/repos/${REPO}/contents/${path}`
-  const res = await fetch(url, {
+  const header =
+    'submitted_at,questionnaire_type,questionnaire_title,customer_name,phone,ticket_id,date,nps_score,nps_band,experience_label,remarks,answers_json,raw_json\n'
+  let current = header
+  let sha
+  if (getRes.ok) {
+    const existing = await getRes.json()
+    current = Buffer.from(existing.content, 'base64').toString('utf8')
+    if (!current.endsWith('\n')) current += '\n'
+    sha = existing.sha
+  } else if (getRes.status !== 404) {
+    throw new Error(`GitHub GET ${getRes.status}`)
+  }
+  current += rowFromNormalized(n) + '\n'
+  const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${CSV_PATH}`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -89,65 +94,13 @@ async function githubPutFile(token, path, content, sha, message) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      message,
-      content: Buffer.from(content, 'utf8').toString('base64'),
+      message: `chore: append KPCL NPS response (${n.questionnaireType || 'unknown'})`,
+      content: Buffer.from(current, 'utf8').toString('base64'),
       branch: BRANCH,
       ...(sha ? { sha } : {}),
     }),
   })
-  if (!res.ok) throw new Error(`GitHub PUT ${path}: ${res.status} ${await res.text()}`)
-  return res.json()
-}
-
-async function appendGithubCsv(token, n) {
-  const existing = await githubGetFile(token, CSV_PATH)
-  const header =
-    'submitted_at,questionnaire_type,questionnaire_title,customer_name,phone,ticket_id,date,nps_score,nps_band,experience_label,remarks,answers_json,raw_json\n'
-  let current = header
-  let sha
-  if (existing && existing.content) {
-    current = Buffer.from(existing.content, 'base64').toString('utf8')
-    if (!current.endsWith('\n')) current += '\n'
-    sha = existing.sha
-  }
-  current += rowFromNormalized(n) + '\n'
-  await githubPutFile(
-    token,
-    CSV_PATH,
-    current,
-    sha,
-    `chore: append KPCL NPS response (${n.questionnaireType || 'unknown'})`,
-  )
-}
-
-async function forwardSheetsWebhook(url, n) {
-  // Shape expected by /workspace/kpcl-sheets/Code.gs
-  const sheetsBody = {
-    submittedAt: n.submittedAt,
-    questionnaireType: n.questionnaireType,
-    questionnaireTitle: n.questionnaireTitle,
-    meta: n.meta,
-    closedQuestionAnswers: n.answers,
-    remarks: n.remarks,
-    npsScore: n.npsScore,
-    npsBand: n.npsBand,
-    experienceLabel: n.experienceLabel,
-  }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sheetsBody),
-    redirect: 'follow',
-  })
-  const text = await res.text()
-  let json
-  try {
-    json = JSON.parse(text)
-  } catch {
-    json = { raw: text }
-  }
-  if (!res.ok) throw new Error(`Sheets webhook ${res.status}: ${text}`)
-  return json
+  if (!putRes.ok) throw new Error(`GitHub PUT ${putRes.status} ${await putRes.text()}`)
 }
 
 module.exports = async function handler(req, res) {
@@ -162,24 +115,53 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'npsScore and questionnaireType required' })
     }
 
-    const result = { ok: true, github: false, sheets: false }
+    const result = { ok: true, github: false, sheets: false, proxy: false }
 
+    // 1) Box tunnel proxy (appends GitHub CSV without needing Vercel secrets)
+    try {
+      const proxyRes = await fetch(PROXY_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Bypass-Tunnel-Reminder': 'true',
+        },
+        body: JSON.stringify(n),
+      })
+      const proxyJson = await proxyRes.json().catch(() => ({}))
+      if (proxyRes.ok && proxyJson.ok !== false) {
+        result.proxy = true
+        result.github = Boolean(proxyJson.github)
+      }
+    } catch (err) {
+      result.proxyError = String(err && err.message ? err.message : err)
+    }
+
+    // 2) Direct GitHub Contents API if token present
     const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
-    if (ghToken) {
+    if (ghToken && !result.github) {
       await appendGithubCsv(ghToken, n)
       result.github = true
     }
 
-    const sheetsUrl = process.env.SHEETS_WEBHOOK_URL || process.env.GOOGLE_SHEETS_WEBHOOK_URL
+    // 3) Sheets webhook if configured
+    const sheetsUrl = SHEETS_URL
     if (sheetsUrl) {
-      result.sheetsResult = await forwardSheetsWebhook(sheetsUrl, n)
+      const sheetsRes = await fetch(sheetsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(n),
+        redirect: 'follow',
+      })
+      const sheetsText = await sheetsRes.text()
+      if (!sheetsRes.ok) throw new Error(`Sheets webhook ${sheetsRes.status}: ${sheetsText}`)
       result.sheets = true
     }
 
     if (!result.github && !result.sheets) {
       return res.status(503).json({
         ok: false,
-        error: 'No GITHUB_TOKEN or SHEETS_WEBHOOK_URL configured on Vercel',
+        error: 'No submit backend available (proxy/GitHub/Sheets)',
+        detail: result,
       })
     }
 
