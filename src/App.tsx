@@ -158,7 +158,26 @@ function downloadSubmission(payload: SubmissionPayload): void {
   URL.revokeObjectURL(fileUrl)
 }
 
+async function sendSubmissionToWebhook(
+  webhookUrl: string,
+  payload: SubmissionPayload,
+): Promise<void> {
+  const response = await fetch(webhookUrl, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (response.type !== 'opaque' && !response.ok) {
+    throw new Error(`Webhook request failed with status ${response.status}`)
+  }
+}
+
 export default function App() {
+  const webhookUrl = import.meta.env.VITE_GOOGLE_SHEETS_WEBHOOK_URL?.trim() ?? ''
   const [questionnaireType, setQuestionnaireType] =
     useState<QuestionnaireType>('warranty')
   const [meta, setMeta] = useState<MetaFields>({
@@ -185,6 +204,7 @@ export default function App() {
     warranty: null,
     commissioning: null,
   })
+  const [submissionNote, setSubmissionNote] = useState<string | null>(null)
   const [submittedPayload, setSubmittedPayload] =
     useState<SubmissionPayload | null>(null)
 
@@ -210,7 +230,7 @@ export default function App() {
     }))
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     if (!isFormValid || currentNps === null) return
 
@@ -232,7 +252,26 @@ export default function App() {
     }
 
     console.log('KPCL feedback submission payload', payload)
-    downloadSubmission(payload)
+
+    let note = 'Response sent to Google Sheets webhook.'
+    if (!webhookUrl) {
+      downloadSubmission(payload)
+      note = 'Webhook URL is not configured. Downloaded a local JSON copy.'
+    } else {
+      try {
+        await sendSubmissionToWebhook(webhookUrl, payload)
+      } catch (error) {
+        console.error(
+          'Webhook submission failed. Downloading local JSON fallback.',
+          error,
+        )
+        downloadSubmission(payload)
+        note =
+          'Could not reach the webhook. Downloaded a local JSON fallback copy.'
+      }
+    }
+
+    setSubmissionNote(note)
     setSubmittedPayload(payload)
   }
 
@@ -248,8 +287,11 @@ export default function App() {
           </h1>
           <p className="mt-3 text-slate-600">
             Your response for {submittedPayload.questionnaireTitle} has been
-            recorded locally.
+            recorded.
           </p>
+          {submissionNote ? (
+            <p className="mt-2 text-sm text-slate-500">{submissionNote}</p>
+          ) : null}
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Overall NPS score</p>
             <p
