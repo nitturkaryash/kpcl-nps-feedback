@@ -4,7 +4,7 @@
  */
 const PROXY_URL =
   process.env.SUBMIT_PROXY_URL ||
-  'http://bore.pub:12716/api/submit'
+  'http://bore.pub:18447/api/submit'
 const SHEETS_URL = process.env.SHEETS_WEBHOOK_URL || ''
 const REPO = process.env.GITHUB_REPO || 'nitturkaryash/kpcl-nps-feedback'
 const BRANCH = process.env.GITHUB_BRANCH || 'main'
