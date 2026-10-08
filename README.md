@@ -2,6 +2,28 @@
 
 One-page NPS feedback form for Kirloskar Pneumatic Company Limited (KPCL).
 
+## Feedback links
+
+Each link is specific to one service request (SR):
+
+```
+https://kpcl-nps-feedback.vercel.app/?sr=<SR ID>&type=<request type>
+```
+
+- `sr`: the SR / ticket ID (required, no spaces, up to 64 characters).
+- `type`: `warranty`, `commissioning`, or a problem name from the
+  "Problems Dropdown" list (URL-encoded, case-insensitive), for example
+  `type=KRMS%20Commissioning`.
+  - `Commissioning of Compressor`, `Compressor Recommissioning` and
+    `KRMS Commissioning` show the commissioning questions.
+  - Every other problem (including `Other ...`) shows the warranty questions.
+
+A link with a missing or unrecognised `sr` / `type` shows an "invalid link"
+message instead of the form.
+
+Questions, rating band words/ranges, and the problem list live in
+`src/feedbackConfig.ts`.
+
 ## Configuration
 
 Create a local env file from the example and set your Apps Script web app URL:
@@ -10,11 +32,11 @@ Create a local env file from the example and set your Apps Script web app URL:
 cp .env.example .env
 ```
 
-`VITE_GOOGLE_SHEETS_WEBHOOK_URL` is optional:
-
-- If set, the app POSTs submission JSON to your Google Apps Script webhook.
-- If unset, the app downloads a local JSON file for each submission.
-- If webhook delivery fails, the app automatically falls back to local JSON download.
+The form POSTs each submission to `/api/submit` (`api/submit.js`), which
+forwards it to the submit proxy (`SUBMIT_PROXY_URL`), the GitHub CSV backup
+(`GITHUB_TOKEN`), and the Google Sheets webhook (`SHEETS_WEBHOOK_URL`).
+If saving fails, the customer sees an error and can tap Submit again; their
+answers are kept.
 
 ## Run
 
@@ -46,14 +68,18 @@ The payload posted to the webhook matches the same JSON shape used for local
 download fallback:
 
 - `submittedAt`
-- `questionnaireType`
+- `srId` (from the link)
+- `requestType` (the `type` value from the link)
+- `questionnaireType` (`warranty` or `commissioning`)
 - `questionnaireTitle`
-- `meta` (`customerName`, `phone`, `ticketId`, `date`)
-- `closedQuestionAnswers` (question list with `answer`)
+- `closedQuestionAnswers` (`number`, `question`, `answer` of `Yes`/`No`)
 - `remarks`
-- `npsScore`
-- `npsBand`
-- `experienceLabel`
+- `npsScore` (1 to 10)
+- `ratingBand` (band word, e.g. `Poor`, `Neutral`, `Good`)
+
+The GitHub CSV backup (`data/responses.csv`) uses the columns
+`submitted_at,sr_id,request_type,questionnaire_type,questionnaire_title,nps_score,rating_band,remarks,answers_json,raw_json`.
+Rows from the earlier form version are in `data/responses-legacy.csv`.
 
 ### Apps Script deployment steps
 

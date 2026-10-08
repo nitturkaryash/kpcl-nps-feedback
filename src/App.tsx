@@ -1,262 +1,283 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, type ReactNode, useMemo, useState } from 'react'
+import {
+  type Question,
+  QUESTIONNAIRES,
+  type QuestionnaireType,
+  RATING_BANDS,
+  RATING_MAX,
+  RATING_MIN,
+  type RatingBand,
+  type RatingFace,
+  REMARKS_PLACEHOLDER,
+} from './feedbackConfig'
+import { type FeedbackLink, parseFeedbackLink } from './feedbackLink'
 
-type QuestionnaireType = 'warranty' | 'commissioning'
-type BinaryAnswer = 'yes' | 'no'
-
-interface ClosedQuestion {
-  id: string
-  text: string
-}
-
-interface Questionnaire {
-  title: string
-  closedQuestions: ClosedQuestion[]
-  remarksQuestion: string
-  npsQuestion: string
-}
-
-interface MetaFields {
-  customerName: string
-  phone: string
-  ticketId: string
-  date: string
-}
+type BinaryAnswer = 'Yes' | 'No'
 
 interface SubmissionPayload {
   submittedAt: string
+  srId: string
+  requestType: string
   questionnaireType: QuestionnaireType
   questionnaireTitle: string
-  meta: MetaFields
-  closedQuestionAnswers: Array<ClosedQuestion & { answer: BinaryAnswer }>
+  closedQuestionAnswers: Array<{ number: number; question: string; answer: BinaryAnswer }>
   remarks: string
   npsScore: number
-  npsBand: 'Detractor' | 'Passive' | 'Promoter'
-  experienceLabel: string
+  ratingBand: string
 }
 
-const QUESTIONNAIRES: Record<QuestionnaireType, Questionnaire> = {
-  warranty: {
-    title: 'Warranty and Post Warranty',
-    closedQuestions: [
-      {
-        id: 'w1',
-        text: 'Did you receive a call from the service engineer after filing a complaint?',
-      },
-      {
-        id: 'w2',
-        text: 'Did engineers visit on time and were cooperative with you?',
-      },
-      {
-        id: 'w3',
-        text: 'Was the problem solved and is the compressor in running condition?',
-      },
-      {
-        id: 'w4',
-        text: 'Did the problem resolve on the first visit?',
-      },
-      {
-        id: 'w5',
-        text: 'Was your complaint understood by the service engineer, and did they attend with necessary tools and tackles?',
-      },
-      {
-        id: 'w6',
-        text: 'Did the service engineer attend site 2 hours post completion of job?',
-      },
-      {
-        id: 'w7',
-        text: 'Was the service engineer technically competent to solve complaints?',
-      },
-      {
-        id: 'w8',
-        text: 'Are you satisfied with the service provided?',
-      },
-    ],
-    remarksQuestion: 'Any suggestions for service improvement?',
-    npsQuestion: 'How do you rate overall service support of KPCL?',
-  },
-  commissioning: {
-    title: 'Commissioning',
-    closedQuestions: [
-      {
-        id: 'c1',
-        text: 'Did you receive a call from the service engineer after filing a complaint?',
-      },
-      {
-        id: 'c2',
-        text: 'Did the engineers visit on time and were cooperative with you?',
-      },
-      {
-        id: 'c3',
-        text: 'Did engineers explain to you about operations and maintenance?',
-      },
-      {
-        id: 'c4',
-        text: 'Did you sign the commissioning report?',
-      },
-      {
-        id: 'c5',
-        text: 'Was the service engineer technically competent?',
-      },
-      {
-        id: 'c6',
-        text: 'Is compressor in running condition?',
-      },
-      {
-        id: 'c7',
-        text: 'Are you satisfied with the service provided?',
-      },
-    ],
-    remarksQuestion: 'Any suggestions for service improvement?',
-    npsQuestion: 'How do you rate overall service support of KPCL?',
-  },
+const RATING_SCORES = Array.from(
+  { length: RATING_MAX - RATING_MIN + 1 },
+  (_, index) => RATING_MIN + index,
+)
+
+function getRatingBand(score: number): RatingBand {
+  const band = RATING_BANDS.find((item) => score >= item.from && score <= item.to)
+  if (!band) throw new Error(`No rating band configured for score ${score}`)
+  return band
 }
 
-const NPS_COLOR_BY_SCORE: Record<number, string> = {
-  1: '#B42318',
-  2: '#D92D20',
-  3: '#F04438',
-  4: '#F97066',
-  5: '#F79009',
-  6: '#FDB022',
-  7: '#66C61C',
-  8: '#15B79E',
-  9: '#039855',
-  10: '#027A48',
+function gridColumn(from: number, to: number): string {
+  return `${from - RATING_MIN + 1} / ${to - RATING_MIN + 2}`
 }
 
-const NPS_SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const
-
-function getNpsBand(score: number): 'Detractor' | 'Passive' | 'Promoter' {
-  if (score <= 6) return 'Detractor'
-  if (score <= 8) return 'Passive'
-  return 'Promoter'
+function PageHeader() {
+  return (
+    <header>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        Kirloskar Pneumatic Company Limited
+      </p>
+      <h1 className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
+        Service Feedback
+      </h1>
+    </header>
+  )
 }
 
-function getExperienceLabel(score: number): string {
-  if (score <= 2) return 'Very Poor'
-  if (score <= 4) return 'Poor'
-  if (score <= 6) return 'Fair'
-  if (score <= 8) return 'Good'
-  return 'Excellent'
+function PageShell({ children }: { children: ReactNode }) {
+  return (
+    <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:p-6">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-200/50 sm:p-8">
+        {children}
+      </section>
+    </main>
+  )
 }
 
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10)
+function InvalidLinkScreen() {
+  return (
+    <PageShell>
+      <PageHeader />
+      <h2 className="mt-6 text-base font-semibold text-slate-900">
+        This feedback link is not valid
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        The link may be incomplete or may have been copied incorrectly. Please
+        open the feedback link exactly as it was shared with you for your
+        service request, or contact KPCL service support for a new link.
+      </p>
+    </PageShell>
+  )
 }
 
-function downloadSubmission(payload: SubmissionPayload): void {
-  const file = new Blob([JSON.stringify(payload, null, 2)], {
-    type: 'application/json',
-  })
-  const fileUrl = URL.createObjectURL(file)
-  const anchor = document.createElement('a')
-  anchor.href = fileUrl
-  anchor.download = `kpcl-feedback-${payload.questionnaireType}-${Date.now()}.json`
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(fileUrl)
+function Face({ face, color, size }: { face: RatingFace; color: string; size: number }) {
+  const mouth = (() => {
+    switch (face) {
+      case 'sad':
+        return 'M8 17 Q12 13 16 17'
+      case 'neutral':
+        return 'M8.5 15.5 L15.5 15.5'
+      case 'happy':
+        return 'M8 14 Q12 18 16 14'
+      default: {
+        const unhandled: never = face
+        throw new Error(`Unknown face ${String(unhandled)}`)
+      }
+    }
+  })()
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="12" fill={color} />
+      <circle cx="8.5" cy="9.5" r="1.4" fill="#1f2937" />
+      <circle cx="15.5" cy="9.5" r="1.4" fill="#1f2937" />
+      <path d={mouth} stroke="#1f2937" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+    </svg>
+  )
 }
 
-async function sendSubmissionToWebhook(
-  webhookUrl: string,
-  payload: SubmissionPayload,
-): Promise<void> {
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: {
-      'Content-Type': 'text/plain;charset=utf-8',
-    },
-    body: JSON.stringify(payload),
-  })
-
-  if (response.type !== 'opaque' && !response.ok) {
-    throw new Error(`Webhook request failed with status ${response.status}`)
-  }
+function RatingScale({
+  value,
+  onChange,
+  label,
+}: {
+  value: number | null
+  onChange: (score: number) => void
+  label: string
+}) {
+  const columns = { gridTemplateColumns: `repeat(${RATING_SCORES.length}, minmax(0, 1fr))` }
+  return (
+    <div className="mt-4">
+      <div className="grid" style={columns} aria-hidden="true">
+        {RATING_SCORES.map((score) => (
+          <span key={score} className="text-center text-xs font-semibold text-slate-700">
+            {score}
+          </span>
+        ))}
+      </div>
+      <div className="mt-1 grid" style={columns} aria-hidden="true">
+        {RATING_BANDS.map((band) => (
+          <div
+            key={band.label}
+            className="mx-0.5 flex flex-col items-stretch"
+            style={{ gridColumn: gridColumn(band.from, band.to) }}
+          >
+            <span
+              className="h-1.5 rounded-b-sm border-x-2 border-b-2"
+              style={{ borderColor: band.color }}
+            />
+            <span
+              className="mt-0.5 text-center text-[11px] font-semibold leading-4"
+              style={{ color: band.color }}
+            >
+              {band.label}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div role="radiogroup" aria-label={label} className="mt-2 grid" style={columns}>
+        {RATING_SCORES.map((score) => {
+          const band = getRatingBand(score)
+          const selected = value === score
+          return (
+            <button
+              key={score}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={`${score}, ${band.label}`}
+              onClick={() => onChange(score)}
+              className="flex flex-col items-center gap-1.5 rounded-lg py-1 outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+            >
+              <span
+                className={`rounded-full transition ${selected ? 'scale-110' : value === null ? '' : 'opacity-60'}`}
+                style={selected ? { boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${band.color}` } : undefined}
+              >
+                <Face face={band.face} color={band.color} size={26} />
+              </span>
+              <span
+                className="flex h-4 w-4 items-center justify-center rounded-full border-2"
+                style={{ borderColor: selected ? band.color : '#94a3b8' }}
+              >
+                {selected ? (
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: band.color }} />
+                ) : null}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      {value !== null ? (
+        <p className="mt-3 text-sm font-semibold text-slate-900">
+          Your rating: {value} ({getRatingBand(value).label})
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
-export default function App() {
-  const webhookUrl = import.meta.env.VITE_GOOGLE_SHEETS_WEBHOOK_URL?.trim() ?? ''
-  const [questionnaireType, setQuestionnaireType] =
-    useState<QuestionnaireType>('warranty')
-  const [meta, setMeta] = useState<MetaFields>({
-    customerName: '',
-    phone: '',
-    ticketId: '',
-    date: getTodayDate(),
-  })
-  const [binaryAnswers, setBinaryAnswers] = useState<
-    Record<QuestionnaireType, Record<string, BinaryAnswer>>
-  >({
-    warranty: {},
-    commissioning: {},
-  })
-  const [remarksByType, setRemarksByType] = useState<
-    Record<QuestionnaireType, string>
-  >({
-    warranty: '',
-    commissioning: '',
-  })
-  const [npsByType, setNpsByType] = useState<
-    Record<QuestionnaireType, number | null>
-  >({
-    warranty: null,
-    commissioning: null,
-  })
-  const [submissionNote, setSubmissionNote] = useState<string | null>(null)
-  const [submittedPayload, setSubmittedPayload] =
-    useState<SubmissionPayload | null>(null)
+function QuestionCard({
+  question,
+  missing,
+  children,
+}: {
+  question: Question
+  missing: boolean
+  children: ReactNode
+}) {
+  return (
+    <article
+      id={`q-${question.number}`}
+      className={`scroll-mt-4 rounded-2xl border bg-white p-4 ${missing ? 'border-rose-400' : 'border-slate-200'}`}
+    >
+      {question.type === 'remarks' ? (
+        <label htmlFor="remarks" className="block text-sm font-semibold leading-6 text-slate-900">
+          {question.number}. {question.text}
+        </label>
+      ) : (
+        <p className="text-sm font-semibold leading-6 text-slate-900">
+          {question.number}. {question.text}
+        </p>
+      )}
+      {children}
+      {missing ? (
+        <p className="mt-2 text-xs font-medium text-rose-600">Please select an answer.</p>
+      ) : null}
+    </article>
+  )
+}
+
+function FeedbackForm({ link }: { link: FeedbackLink }) {
+  const questionnaire = QUESTIONNAIRES[link.questionnaireType]
+  const [answers, setAnswers] = useState<Record<number, BinaryAnswer>>({})
+  const [remarks, setRemarks] = useState('')
+  const [rating, setRating] = useState<number | null>(null)
+  const [showMissing, setShowMissing] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitted, setSubmitted] = useState(false)
 
-  const currentQuestionnaire = QUESTIONNAIRES[questionnaireType]
-  const currentAnswers = binaryAnswers[questionnaireType]
-  const currentRemarks = remarksByType[questionnaireType]
-  const currentNps = npsByType[questionnaireType]
-
-  const isFormValid = useMemo(() => {
-    const allClosedAnswered = currentQuestionnaire.closedQuestions.every(
-      (question) => Boolean(currentAnswers[question.id]),
-    )
-    return allClosedAnswered && currentNps !== null
-  }, [currentAnswers, currentNps, currentQuestionnaire.closedQuestions])
-
-  function setBinaryAnswer(questionId: string, value: BinaryAnswer): void {
-    setBinaryAnswers((previous) => ({
-      ...previous,
-      [questionnaireType]: {
-        ...previous[questionnaireType],
-        [questionId]: value,
-      },
-    }))
-  }
+  const missingNumbers = useMemo(
+    () =>
+      questionnaire.questions
+        .filter((question) => {
+          switch (question.type) {
+            case 'yesno':
+              return !answers[question.number]
+            case 'rating':
+              return rating === null
+            case 'remarks':
+              return false
+            default: {
+              const unhandled: never = question.type
+              throw new Error(`Unknown question type ${String(unhandled)}`)
+            }
+          }
+        })
+        .map((question) => question.number),
+    [answers, rating, questionnaire.questions],
+  )
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (!isFormValid || currentNps === null || isSubmitting) return
+    if (isSubmitting) return
+    if (missingNumbers.length > 0 || rating === null) {
+      setShowMissing(true)
+      document
+        .getElementById(`q-${missingNumbers[0]}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
 
     const payload: SubmissionPayload = {
       submittedAt: new Date().toISOString(),
-      questionnaireType,
-      questionnaireTitle: currentQuestionnaire.title,
-      meta,
-      closedQuestionAnswers: currentQuestionnaire.closedQuestions.map(
-        (question) => ({
-          ...question,
-          answer: currentAnswers[question.id],
-        }),
-      ),
-      remarks: currentRemarks.trim(),
-      npsScore: currentNps,
-      npsBand: getNpsBand(currentNps),
-      experienceLabel: getExperienceLabel(currentNps),
+      srId: link.srId,
+      requestType: link.requestType,
+      questionnaireType: link.questionnaireType,
+      questionnaireTitle: questionnaire.title,
+      closedQuestionAnswers: questionnaire.questions
+        .filter((question) => question.type === 'yesno')
+        .map((question) => ({
+          number: question.number,
+          question: question.text,
+          answer: answers[question.number],
+        })),
+      remarks: remarks.trim(),
+      npsScore: rating,
+      ratingBand: getRatingBand(rating).label,
     }
 
     setIsSubmitting(true)
     setSubmitError(null)
-    console.log('KPCL feedback submission payload', payload)
-
     try {
       const response = await fetch('/api/submit', {
         method: 'POST',
@@ -267,205 +288,50 @@ export default function App() {
       if (!response.ok || result.ok === false) {
         throw new Error(result.error || `Submit failed (${response.status})`)
       }
-      const parts = []
-      if (result.sheets) parts.push('Google Sheet')
-      if (result.github) parts.push('response log')
-      setSubmissionNote(
-        parts.length
-          ? `Saved to ${parts.join(' and ')}.`
-          : 'Response saved.',
-      )
-      setSubmittedPayload(payload)
+      setSubmitted(true)
+      window.scrollTo({ top: 0 })
     } catch (error) {
       console.error(error)
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : 'Could not save your feedback. Please try again.',
-      )
-      downloadSubmission(payload)
-      setSubmissionNote(
-        'Could not reach the save API. Downloaded a local JSON fallback copy.',
-      )
+      setSubmitError('We could not save your feedback. Please check your connection and tap Submit again.')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (submittedPayload) {
+  if (submitted) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center p-4 sm:p-6">
-        <section className="w-full rounded-3xl border border-emerald-100 bg-white p-6 shadow-lg shadow-emerald-100/50 sm:p-8">
-          <p className="text-sm font-semibold tracking-wide text-emerald-700">
-            KPCL Service Feedback
-          </p>
-          <h1 className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
-            Thank you for your feedback.
-          </h1>
-          <p className="mt-3 text-slate-600">
-            Your response for {submittedPayload.questionnaireTitle} has been
-            recorded.
-          </p>
-          {submissionNote ? (
-            <p className="mt-2 text-sm text-slate-500">{submissionNote}</p>
-          ) : null}
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Overall NPS score</p>
-            <p
-              className="mt-2 inline-flex h-12 w-12 items-center justify-center rounded-xl text-xl font-bold text-white"
-              style={{
-                backgroundColor: NPS_COLOR_BY_SCORE[submittedPayload.npsScore],
-              }}
-            >
-              {submittedPayload.npsScore}
-            </p>
-            <p className="mt-2 font-semibold text-slate-900">
-              {submittedPayload.experienceLabel} ({submittedPayload.npsBand})
-            </p>
-          </div>
-          <button
-            type="button"
-            className="mt-6 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-            onClick={() => setSubmittedPayload(null)}
-          >
-            Submit another response
-          </button>
-        </section>
-      </main>
+      <PageShell>
+        <PageHeader />
+        <h2 className="mt-6 text-lg font-semibold text-slate-900">
+          Thank you for your feedback.
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Your response for service request {link.srId} has been recorded.
+        </p>
+      </PageShell>
     )
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl p-3 sm:p-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/50 sm:p-8">
-        <header className="mb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Kirloskar Pneumatic Company Limited
-          </p>
-          <h1 className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
-            Service Feedback
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Please answer all questions for the selected service type. All
-            questions are on this page.
-          </p>
-        </header>
+    <PageShell>
+      <PageHeader />
+      <p className="mt-4 text-base font-semibold text-slate-800">Dear Customer</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        We value your opinion and would love to know how we&rsquo;re doing.
+        Please take a moment to share your feedback on how we can serve you
+        better.
+      </p>
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-            <h2 className="text-base font-semibold text-slate-900">
-              Customer details
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Optional fields. You can submit without entering these details.
-            </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1 text-sm text-slate-700">
-                <span>Customer name</span>
-                <input
-                  type="text"
-                  value={meta.customerName}
-                  onChange={(event) =>
-                    setMeta((previous) => ({
-                      ...previous,
-                      customerName: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-indigo-500 transition focus:ring-2"
-                  placeholder="Enter customer name"
-                />
-              </label>
-              <label className="space-y-1 text-sm text-slate-700">
-                <span>Phone</span>
-                <input
-                  type="tel"
-                  value={meta.phone}
-                  onChange={(event) =>
-                    setMeta((previous) => ({
-                      ...previous,
-                      phone: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-indigo-500 transition focus:ring-2"
-                  placeholder="Enter phone number"
-                />
-              </label>
-              <label className="space-y-1 text-sm text-slate-700">
-                <span>Ticket or Complaint ID</span>
-                <input
-                  type="text"
-                  value={meta.ticketId}
-                  onChange={(event) =>
-                    setMeta((previous) => ({
-                      ...previous,
-                      ticketId: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-indigo-500 transition focus:ring-2"
-                  placeholder="Enter ticket ID"
-                />
-              </label>
-              <label className="space-y-1 text-sm text-slate-700">
-                <span>Date</span>
-                <input
-                  type="date"
-                  value={meta.date}
-                  onChange={(event) =>
-                    setMeta((previous) => ({
-                      ...previous,
-                      date: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-indigo-500 transition focus:ring-2"
-                />
-              </label>
-            </div>
-          </section>
-
-          <section>
-            <h2 className="text-base font-semibold text-slate-900">
-              Questionnaire type
-            </h2>
-            <div className="mt-3 inline-flex w-full rounded-2xl bg-slate-100 p-1">
-              {(Object.keys(QUESTIONNAIRES) as QuestionnaireType[]).map(
-                (type) => {
-                  const isActive = type === questionnaireType
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      className={`w-1/2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                        isActive
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      onClick={() => setQuestionnaireType(type)}
-                    >
-                      {QUESTIONNAIRES[type].title}
-                    </button>
-                  )
-                },
-              )}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            {currentQuestionnaire.closedQuestions.map((question, index) => {
-              const answer = currentAnswers[question.id]
+      <form className="mt-6 space-y-4" onSubmit={handleSubmit} noValidate>
+        {questionnaire.questions.map((question) => {
+          const missing = showMissing && missingNumbers.includes(question.number)
+          switch (question.type) {
+            case 'yesno': {
+              const answer = answers[question.number]
               return (
-                <article
-                  key={question.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4"
-                >
-                  <p className="text-sm font-semibold text-slate-900">
-                    {index + 1}. {question.text}
-                  </p>
-                  <div
-                    role="radiogroup"
-                    aria-label={question.text}
-                    className="mt-3 grid grid-cols-2 gap-3"
-                  >
-                    {(['yes', 'no'] as const).map((value) => {
+                <QuestionCard key={question.number} question={question} missing={missing}>
+                  <div role="radiogroup" aria-label={question.text} className="mt-3 grid grid-cols-2 gap-3">
+                    {(['Yes', 'No'] as const).map((value) => {
                       const selected = answer === value
                       return (
                         <button
@@ -473,139 +339,66 @@ export default function App() {
                           type="button"
                           role="radio"
                           aria-checked={selected}
-                          aria-label={`${question.text} ${value}`}
-                          onClick={() => setBinaryAnswer(question.id, value)}
-                          className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                          onClick={() =>
+                            setAnswers((previous) => ({ ...previous, [question.number]: value }))
+                          }
+                          className={`h-11 rounded-xl border text-sm font-semibold transition ${
                             selected
-                              ? value === 'yes'
+                              ? value === 'Yes'
                                 ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                                 : 'border-rose-500 bg-rose-50 text-rose-700'
-                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
+                              : 'border-slate-300 bg-white text-slate-700'
                           }`}
                         >
-                          {value === 'yes' ? 'Yes' : 'No'}
+                          {value}
                         </button>
                       )
                     })}
                   </div>
-                </article>
+                </QuestionCard>
               )
-            })}
+            }
+            case 'remarks':
+              return (
+                <QuestionCard key={question.number} question={question} missing={false}>
+                  <textarea
+                    id="remarks"
+                    value={remarks}
+                    onChange={(event) => setRemarks(event.target.value)}
+                    placeholder={REMARKS_PLACEHOLDER}
+                    rows={4}
+                    className="mt-3 w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900 outline-none ring-slate-400 transition focus:ring-2 sm:text-sm"
+                  />
+                </QuestionCard>
+              )
+            case 'rating':
+              return (
+                <QuestionCard key={question.number} question={question} missing={missing}>
+                  <RatingScale value={rating} onChange={setRating} label={question.text} />
+                </QuestionCard>
+              )
+            default: {
+              const unhandled: never = question.type
+              throw new Error(`Unknown question type ${String(unhandled)}`)
+            }
+          }
+        })}
 
-            <article className="rounded-2xl border border-slate-200 bg-white p-4">
-              <label
-                className="block text-sm font-semibold text-slate-900"
-                htmlFor="remarks"
-              >
-                {currentQuestionnaire.closedQuestions.length + 1}.{' '}
-                {currentQuestionnaire.remarksQuestion}
-              </label>
-              <textarea
-                id="remarks"
-                value={currentRemarks}
-                onChange={(event) =>
-                  setRemarksByType((previous) => ({
-                    ...previous,
-                    [questionnaireType]: event.target.value,
-                  }))
-                }
-                placeholder="Write your remarks or suggestions"
-                className="mt-3 min-h-28 w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none ring-indigo-500 transition focus:ring-2"
-              />
-            </article>
-
-            <article className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-sm font-semibold text-slate-900">
-                {currentQuestionnaire.closedQuestions.length + 2}.{' '}
-                {currentQuestionnaire.npsQuestion}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                NPS bands. Detractor 1 to 6. Passive 7 to 8. Promoter 9 to 10.
-                Color shows severity of the rating.
-              </p>
-              <div className="mt-3 grid grid-cols-5 gap-2 sm:grid-cols-10">
-                {NPS_SCORES.map((score) => {
-                  const selected = currentNps === score
-                  const color = NPS_COLOR_BY_SCORE[score]
-                  return (
-                    <button
-                      key={score}
-                      type="button"
-                      aria-label={`Select NPS score ${score}`}
-                      onClick={() =>
-                        setNpsByType((previous) => ({
-                          ...previous,
-                          [questionnaireType]: score,
-                        }))
-                      }
-                      className={`h-11 rounded-xl border text-sm font-bold transition ${
-                        selected
-                          ? 'scale-[1.02] border-transparent text-white shadow-md'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
-                      }`}
-                      style={{
-                        backgroundColor: selected ? color : undefined,
-                        color: selected ? '#fff' : undefined,
-                        borderColor: selected ? color : undefined,
-                        boxShadow: selected
-                          ? `0 8px 18px ${color}55`
-                          : undefined,
-                      }}
-                    >
-                      {score}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="mt-4 grid grid-cols-4 overflow-hidden rounded-xl text-[11px] font-semibold sm:text-xs">
-                <div
-                  className="px-2 py-2 text-center text-white"
-                  style={{ background: '#D92D20' }}
-                >
-                  1 to 4 Severe
-                </div>
-                <div
-                  className="px-2 py-2 text-center text-white"
-                  style={{ background: '#F79009' }}
-                >
-                  5 to 6 Concern
-                </div>
-                <div
-                  className="px-2 py-2 text-center text-slate-900"
-                  style={{ background: '#66C61C' }}
-                >
-                  7 to 8 Good
-                </div>
-                <div
-                  className="px-2 py-2 text-center text-white"
-                  style={{ background: '#039855' }}
-                >
-                  9 to 10 Excellent
-                </div>
-              </div>
-              {currentNps ? (
-                <p className="mt-3 text-sm font-semibold text-slate-900">
-                  Selected score {currentNps}. {getExperienceLabel(currentNps)}.{' '}
-                  {getNpsBand(currentNps)}.
-                </p>
-              ) : (
-                <p className="mt-3 text-sm text-slate-500">
-                  Please select an overall NPS score from 1 to 10.
-                </p>
-              )}
-            </article>
-          </section>
-
-          {submitError ? (
-              <p className="mb-3 text-sm text-rose-600">{submitError}</p>
-            ) : null}
-            <button
-            type="submit"
-            disabled={!isFormValid || isSubmitting}
-            className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >{isSubmitting ? 'Saving…' : 'Submit feedback'}</button>
-        </form>
-      </section>
-    </main>
+        {submitError ? <p className="text-sm text-rose-600">{submitError}</p> : null}
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="h-12 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+        >
+          {isSubmitting ? 'Submitting...' : 'Submit feedback'}
+        </button>
+      </form>
+    </PageShell>
   )
+}
+
+export default function App() {
+  const result = useMemo(() => parseFeedbackLink(window.location.search), [])
+  if (!result.ok) return <InvalidLinkScreen />
+  return <FeedbackForm link={result.link} />
 }
