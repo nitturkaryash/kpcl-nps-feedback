@@ -16,26 +16,37 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
+const QUESTIONNAIRE_TYPES = ['warranty', 'commissioning']
+
+function str(value) {
+  return value == null ? '' : String(value).trim()
+}
+
 function normalize(body) {
-  const meta = body.meta || {}
-  const answers =
-    body.closedQuestionAnswers || body.closedQuestions || body.answers || []
+  const answers = Array.isArray(body.closedQuestionAnswers) ? body.closedQuestionAnswers : []
+  const score = Number(body.npsScore)
   return {
-    submittedAt: body.submittedAt || new Date().toISOString(),
-    questionnaireType: body.questionnaireType || body.questionnaire_type || '',
-    questionnaireTitle: body.questionnaireTitle || body.questionnaire_title || '',
-    meta: {
-      customerName: meta.customerName || '',
-      phone: meta.phone || '',
-      ticketId: meta.ticketId || '',
-      date: meta.date || '',
-    },
-    closedQuestionAnswers: answers,
-    remarks: body.remarks || '',
-    npsScore: body.npsScore ?? body.nps_score ?? null,
-    npsBand: body.npsBand || body.nps_band || '',
-    experienceLabel: body.experienceLabel || body.experience_label || '',
+    submittedAt: str(body.submittedAt) || new Date().toISOString(),
+    srId: str(body.srId),
+    requestType: str(body.requestType),
+    questionnaireType: str(body.questionnaireType),
+    questionnaireTitle: str(body.questionnaireTitle),
+    closedQuestionAnswers: answers.map((item) => ({
+      number: Number(item && item.number),
+      question: str(item && item.question),
+      answer: str(item && item.answer),
+    })),
+    remarks: str(body.remarks),
+    npsScore: Number.isInteger(score) ? score : null,
+    ratingBand: str(body.ratingBand),
   }
+}
+
+function validationError(n) {
+  if (!n.srId) return 'srId required'
+  if (!QUESTIONNAIRE_TYPES.includes(n.questionnaireType)) return 'questionnaireType must be warranty or commissioning'
+  if (n.npsScore == null || n.npsScore < 1 || n.npsScore > 10) return 'npsScore must be 1 to 10'
+  return null
 }
 
 function csvEscape(value) {
@@ -46,15 +57,12 @@ function csvEscape(value) {
 function rowFromNormalized(n) {
   return [
     n.submittedAt,
+    n.srId,
+    n.requestType,
     n.questionnaireType,
     n.questionnaireTitle,
-    n.meta.customerName,
-    n.meta.phone,
-    n.meta.ticketId,
-    n.meta.date,
     n.npsScore ?? '',
-    n.npsBand,
-    n.experienceLabel,
+    n.ratingBand,
     n.remarks,
     JSON.stringify(n.closedQuestionAnswers),
     JSON.stringify(n),
@@ -73,7 +81,7 @@ async function appendGithubCsv(token, n) {
     },
   })
   const header =
-    'submitted_at,questionnaire_type,questionnaire_title,customer_name,phone,ticket_id,date,nps_score,nps_band,experience_label,remarks,answers_json,raw_json\n'
+    'submitted_at,sr_id,request_type,questionnaire_type,questionnaire_title,nps_score,rating_band,remarks,answers_json,raw_json\n'
   let current = header
   let sha
   if (getRes.ok) {
@@ -94,7 +102,7 @@ async function appendGithubCsv(token, n) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      message: `chore: append KPCL NPS response (${n.questionnaireType || 'unknown'})`,
+      message: `chore: append KPCL NPS response (${n.questionnaireType} SR ${n.srId})`,
       content: Buffer.from(current, 'utf8').toString('base64'),
       branch: BRANCH,
       ...(sha ? { sha } : {}),
@@ -111,9 +119,8 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {}
     const n = normalize(body)
-    if (n.npsScore == null || !n.questionnaireType) {
-      return res.status(400).json({ ok: false, error: 'npsScore and questionnaireType required' })
-    }
+    const invalid = validationError(n)
+    if (invalid) return res.status(400).json({ ok: false, error: invalid })
 
     const result = { ok: true, github: false, sheets: false, proxy: false }
 
