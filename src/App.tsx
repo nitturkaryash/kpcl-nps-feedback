@@ -124,11 +124,11 @@ function RatingScale({
           </span>
         ))}
       </div>
-      <div className="mt-1 grid gap-x-1" style={columns} aria-hidden="true">
+      <div className="mt-1 grid" style={columns} aria-hidden="true">
         {RATING_BANDS.map((band) => (
           <div
             key={band.label}
-            className="flex flex-col items-stretch"
+            className="mx-0.5 flex flex-col items-stretch"
             style={{ gridColumn: gridColumn(band.from, band.to) }}
           >
             <span
