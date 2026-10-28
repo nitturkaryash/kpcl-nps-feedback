@@ -2,6 +2,24 @@
 
 One-page NPS feedback form for Kirloskar Pneumatic Company Limited (KPCL).
 
+## Service-request URL format
+
+The form is link-driven. Customer details are not shown on the page.
+
+- Query params select service type (for question bank selection):
+  - `type=warranty` (also supports `post-warranty`)
+  - `type=commissioning`
+- Query params can carry service request identifiers:
+  - `serviceRequestId`, `requestId`, `ticketId`, or `complaintId`
+- Any query params on the URL are captured and included in the submitted payload.
+
+Examples:
+
+```text
+https://kpcl-nps-feedback.vercel.app/?type=warranty&serviceRequestId=SR-10234
+https://kpcl-nps-feedback.vercel.app/?type=commissioning&requestId=COM-88421
+```
+
 ## Configuration
 
 Create a local env file from the example and set your Apps Script web app URL:
@@ -48,7 +66,10 @@ download fallback:
 - `submittedAt`
 - `questionnaireType`
 - `questionnaireTitle`
-- `meta` (`customerName`, `phone`, `ticketId`, `date`)
+- `serviceTypeFromLink`
+- `serviceRequestId`
+- `linkQueryParams`
+- `meta` (`customerName`, `phone`, `ticketId`, `date`) for backward compatibility with existing submit sinks
 - `closedQuestionAnswers` (question list with `answer`)
 - `remarks`
 - `npsScore`
@@ -71,8 +92,8 @@ download fallback:
 The frontend sends:
 
 - `method: POST`
-- `redirect: follow`
-- `Content-Type: text/plain;charset=utf-8`
-- `body: JSON.stringify(payload)`
+- `Content-Type: application/json`
+- `body: JSON.stringify(payload)` to `/api/submit`
 
-Using `text/plain` avoids Apps Script CORS preflight issues in many setups.
+The serverless `/api/submit` endpoint then forwards normalized JSON to the
+configured Sheets webhook.
