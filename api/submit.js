@@ -20,14 +20,42 @@ function normalize(body) {
   const meta = body.meta || {}
   const answers =
     body.closedQuestionAnswers || body.closedQuestions || body.answers || []
+  const serviceRequestId =
+    body.serviceRequestId ||
+    body.service_request_id ||
+    body.requestId ||
+    body.request_id ||
+    body.ticketId ||
+    body.ticket_id ||
+    body.complaintId ||
+    body.complaint_id ||
+    meta.ticketId ||
+    ''
+  const serviceTypeFromLink =
+    body.serviceTypeFromLink ||
+    body.service_type_from_link ||
+    body.serviceType ||
+    body.service_type ||
+    body.type ||
+    ''
+  const linkQueryParams =
+    body.linkQueryParams ||
+    body.link_query_params ||
+    body.queryParams ||
+    body.query_params ||
+    {}
+
   return {
     submittedAt: body.submittedAt || new Date().toISOString(),
     questionnaireType: body.questionnaireType || body.questionnaire_type || '',
     questionnaireTitle: body.questionnaireTitle || body.questionnaire_title || '',
+    serviceRequestId,
+    serviceTypeFromLink,
+    linkQueryParams,
     meta: {
       customerName: meta.customerName || '',
       phone: meta.phone || '',
-      ticketId: meta.ticketId || '',
+      ticketId: meta.ticketId || serviceRequestId,
       date: meta.date || '',
     },
     closedQuestionAnswers: answers,
