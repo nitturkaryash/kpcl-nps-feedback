@@ -38,11 +38,11 @@ interface SubmissionPayload {
 
 const QUESTIONNAIRES: Record<QuestionnaireType, Questionnaire> = {
   warranty: {
-    title: 'Warranty and Post Warranty',
+    title: 'For Warranty and Post Warranty Services',
     closedQuestions: [
       {
         id: 'w1',
-        text: 'Did you receive a call from the service engineer after filing a complaint?',
+        text: 'Did you receive a call from the service engineer after filing the complaint?',
       },
       {
         id: 'w2',
@@ -54,22 +54,6 @@ const QUESTIONNAIRES: Record<QuestionnaireType, Questionnaire> = {
       },
       {
         id: 'w4',
-        text: 'Did the problem resolve on the first visit?',
-      },
-      {
-        id: 'w5',
-        text: 'Was your complaint understood by the service engineer, and did they attend with necessary tools and tackles?',
-      },
-      {
-        id: 'w6',
-        text: 'Did the service engineer attend site 2 hours post completion of job?',
-      },
-      {
-        id: 'w7',
-        text: 'Was the service engineer technically competent to solve complaints?',
-      },
-      {
-        id: 'w8',
         text: 'Are you satisfied with the service provided?',
       },
     ],
@@ -78,11 +62,11 @@ const QUESTIONNAIRES: Record<QuestionnaireType, Questionnaire> = {
     npsQuestion: 'How do you rate overall service support of KPCL?',
   },
   commissioning: {
-    title: 'Commissioning',
+    title: 'Commissioning call Questionnaire',
     closedQuestions: [
       {
         id: 'c1',
-        text: 'Did you receive a call from the service engineer after filing a complaint?',
+        text: 'Did you receive a call from the service engineer after filing the complaint?',
       },
       {
         id: 'c2',
@@ -90,7 +74,7 @@ const QUESTIONNAIRES: Record<QuestionnaireType, Questionnaire> = {
       },
       {
         id: 'c3',
-        text: 'Did engineers explain to you about operations and maintenance?',
+        text: 'Did Engineers explain to you about operations and maintenance of compressor?',
       },
       {
         id: 'c4',
@@ -98,14 +82,10 @@ const QUESTIONNAIRES: Record<QuestionnaireType, Questionnaire> = {
       },
       {
         id: 'c5',
-        text: 'Was the service engineer technically competent?',
+        text: 'Is the compressor in running condition?',
       },
       {
         id: 'c6',
-        text: 'Is compressor in running condition?',
-      },
-      {
-        id: 'c7',
         text: 'Are you satisfied with the service provided?',
       },
     ],
